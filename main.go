@@ -108,6 +108,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if msg.String() == "q" {
+			return m, tea.Quit
+		}
 		switch m.state {
 		case "menu":
 			if msg.String() == "ctrl+c" {
