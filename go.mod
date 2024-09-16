@@ -1,4 +1,4 @@
-module snipsnap
+module github.com/adammpkins/snipsnap
 
 go 1.23.1
 
