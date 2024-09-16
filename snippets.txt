@@ -1,0 +1,1 @@
+2|Console Log|JavaScript|console.log("something");
