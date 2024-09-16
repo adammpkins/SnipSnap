@@ -26,7 +26,7 @@ var (
 			PaddingLeft(4).
 			Foreground(lipgloss.Color("#FAFAFA"))
 
-	selectedItemStyle = itemStyle.Copy().
+	selectedItemStyle = itemStyle.
 				Foreground(lipgloss.Color("#7D56F4"))
 
 	paginationStyle = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
