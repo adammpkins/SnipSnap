@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -67,9 +68,10 @@ type model struct {
 	list         list.Model
 	width        int
 	height       int
+	logger       *log.Logger
 }
 
-func initialModel() model {
+func initialModel() (model, error) {
 	items := []list.Item{
 		item("View Snippets"),
 		item("Add Snippet"),
@@ -97,13 +99,22 @@ func initialModel() model {
 	ta.SetWidth(40)
 	ta.SetHeight(10)
 
+	// Set up logger
+	logFile, err := os.OpenFile("debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return model{}, fmt.Errorf("failed to open log file: %v", err)
+	}
+
+	logger := log.New(logFile, "", log.LstdFlags)
+
 	return model{
 		snippets: loadSnippets(),
 		state:    "menu",
 		input:    ti,
 		textarea: ta,
 		list:     l,
-	}
+		logger:   logger,
+	}, nil
 }
 
 func (m model) Init() tea.Cmd {
@@ -119,7 +130,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Add logging
+		m.logger.Printf("Key pressed: %s, Current state: %s\n", msg.String(), m.state)
+
+		// Handle Esc key globally
+		if msg.Type == tea.KeyEsc {
+			m.logger.Println("Esc key pressed. Handling...")
+			switch m.state {
+			case "menu":
+				// In menu, Esc does nothing
+				m.logger.Println("In menu, Esc does nothing")
+			default:
+				// In other states, Esc should return to menu
+				m.logger.Println("Returning to menu due to Esc")
+				return m.resetState(), nil
+			}
+		}
+
 		if msg.String() == "q" {
+			m.logger.Println("Quitting application due to 'q' key")
 			return m, tea.Quit
 		}
 		switch m.state {
@@ -150,8 +179,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "add":
 			switch msg.Type {
-			case tea.KeyEsc:
-				return m.resetState(), nil
 			case tea.KeyEnter:
 				if m.currentField < 2 {
 					switch m.currentField {
@@ -190,13 +217,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedItem--
 			} else if msg.String() == "down" && m.selectedItem < len(m.snippets)-1 {
 				m.selectedItem++
-			} else if msg.Type == tea.KeyEsc || msg.String() == "q" {
-				m.state = "menu"
 			}
 		case "view":
-			if msg.Type == tea.KeyEsc || msg.String() == "q" {
-				m.state = "menu"
-			}
+			// No additional handling needed here, Esc is handled globally
 		}
 	}
 
@@ -224,7 +247,7 @@ func (m model) View() string {
 			s.WriteString(itemStyle.Render(fmt.Sprintf("ID: %d\nName: %s\nLanguage: %s\nCode:\n%s\n", snip.ID, snip.Name, snip.Language, snip.Code)))
 			s.WriteString(itemStyle.Render("----------------------\n"))
 		}
-		s.WriteString(quitTextStyle.Render("Press 'q' or 'esc' to return to menu"))
+		s.WriteString(quitTextStyle.Render("Press 'esc' to return to menu"))
 		return s.String()
 	case "add":
 		var s strings.Builder
@@ -267,7 +290,7 @@ func (m model) View() string {
 			s.WriteString(style.Render(formattedLine) + "\n")
 		}
 		s.WriteString("\n")
-		s.WriteString(quitTextStyle.Render("Use arrow keys to select, Enter to delete, 'q' or 'esc' to cancel"))
+		s.WriteString(quitTextStyle.Render("Use arrow keys to select, Enter to delete, 'esc' to cancel"))
 		return s.String()
 	default:
 		return "Unknown state"
@@ -285,13 +308,13 @@ func (m model) resetState() model {
 }
 
 func main() {
-	f, err := tea.LogToFile("debug.log", "debug")
+	initialModel, err := initialModel()
 	if err != nil {
-		fmt.Println("Fatal:", err)
+		fmt.Println("Error initializing model:", err)
 		os.Exit(1)
 	}
-	defer f.Close()
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+
+	p := tea.NewProgram(initialModel, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v", err)
 		os.Exit(1)
