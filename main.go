@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -244,7 +245,14 @@ func (m model) View() string {
 		s.WriteString(titleStyle.Render("View Snippets"))
 		s.WriteString("\n\n")
 		for _, snip := range m.snippets {
-			s.WriteString(itemStyle.Render(fmt.Sprintf("ID: %d\nName: %s\nLanguage: %s\nCode:\n%s\n", snip.ID, snip.Name, snip.Language, snip.Code)))
+			s.WriteString(itemStyle.Render(fmt.Sprintf("ID: %d\nName: %s\nLanguage: %s\nCode:\n", snip.ID, snip.Name, snip.Language)))
+
+			// Split the code into lines and render each line
+			codeLines := strings.Split(snip.Code, "\n")
+			for _, line := range codeLines {
+				s.WriteString(itemStyle.Render(line + "\n"))
+			}
+
 			s.WriteString(itemStyle.Render("----------------------\n"))
 		}
 		s.WriteString(quitTextStyle.Render("Press 'esc' to return to menu"))
@@ -331,14 +339,15 @@ func loadSnippets() []snippet {
 	var snippets []snippet
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		parts := strings.Split(scanner.Text(), "|")
+		parts := strings.Split(scanner.Text(), "|||")
 		if len(parts) == 4 {
 			id, _ := strconv.Atoi(parts[0])
+			decodedCode, _ := base64.StdEncoding.DecodeString(parts[3])
 			snippets = append(snippets, snippet{
 				ID:       id,
 				Name:     parts[1],
 				Language: parts[2],
-				Code:     parts[3],
+				Code:     string(decodedCode),
 			})
 		}
 	}
@@ -354,7 +363,9 @@ func saveSnippets(snippets []snippet) {
 	defer file.Close()
 
 	for _, s := range snippets {
-		fmt.Fprintf(file, "%d|%s|%s|%s\n", s.ID, s.Name, s.Language, s.Code)
+		// Encode the code as base64 to preserve newlines
+		encodedCode := base64.StdEncoding.EncodeToString([]byte(s.Code))
+		fmt.Fprintf(file, "%d|||%s|||%s|||%s\n", s.ID, s.Name, s.Language, encodedCode)
 	}
 }
 
