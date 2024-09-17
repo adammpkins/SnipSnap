@@ -6,7 +6,7 @@ A TUI for managing your snippets.
 
 ```sh
 # Installation
-go install github.com/adampkins/snipsnap@latest
+go install github.com/adammpkins/snipsnap@latest
 # Usage
 snipsnap
 ```
