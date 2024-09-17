@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -58,6 +59,7 @@ type model struct {
 	snippets     []snippet
 	state        string
 	input        textinput.Model
+	textarea     textarea.Model
 	currentField int
 	newSnippet   snippet
 	selectedItem int
@@ -87,10 +89,19 @@ func initialModel() model {
 	ti.PlaceholderStyle = placeholderStyle
 	ti.TextStyle = inputStyle
 
+	ta := textarea.New()
+	ta.Placeholder = "Enter snippet code"
+	ta.CharLimit = 0
+	ta.ShowLineNumbers = true
+	ta.Prompt = "|"
+	ta.SetWidth(40)
+	ta.SetHeight(10)
+
 	return model{
 		snippets: loadSnippets(),
 		state:    "menu",
 		input:    ti,
+		textarea: ta,
 		list:     l,
 	}
 }
@@ -110,10 +121,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch m.state {
 		case "menu":
-			if msg.String() == "ctrl+c" {
+			if msg.Type == tea.KeyCtrlC {
 				return m, tea.Quit
 			}
-			if msg.String() == "enter" {
+			if msg.Type == tea.KeyEnter {
 				i, ok := m.list.SelectedItem().(item)
 				if ok {
 					switch string(i) {
@@ -135,33 +146,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "add":
-			switch msg.String() {
-			case "enter":
-				switch m.currentField {
-				case 0:
-					m.newSnippet.Name = m.input.Value()
-					m.input.Placeholder = "Language"
-					m.input.SetValue("")
-					m.input.Focus()
-					m.currentField++
-				case 1:
-					m.newSnippet.Language = m.input.Value()
-					m.input.Placeholder = "Code"
-					m.input.SetValue("")
-					m.input.Focus()
-					m.currentField++
-				case 2:
-					m.newSnippet.Code = m.input.Value()
+			switch msg.Type {
+			case tea.KeyEsc:
+				return m.resetState(), nil
+			case tea.KeyEnter:
+				if m.currentField < 2 {
+					switch m.currentField {
+					case 0:
+						m.newSnippet.Name = m.input.Value()
+						m.input.SetValue("")
+						m.input.Placeholder = "Language"
+						m.currentField++
+					case 1:
+						m.newSnippet.Language = m.input.Value()
+						m.input.SetValue("")
+						m.textarea.Focus()
+						m.currentField++
+					}
+				}
+				// If we're in the textarea, let it handle the Enter key
+			case tea.KeyCtrlS:
+				if m.currentField == 2 {
+					// Submit the snippet
+					m.newSnippet.Code = m.textarea.Value()
 					m.newSnippet.ID = generateID(m.snippets)
 					m.snippets = append(m.snippets, m.newSnippet)
 					saveSnippets(m.snippets)
-					m.state = "menu"
+					return m.resetState(), nil
 				}
-			case "esc":
-				m.state = "menu"
 			}
 		case "delete":
-			if msg.String() == "enter" {
+			if msg.Type == tea.KeyEnter {
 				if m.selectedItem >= 0 && m.selectedItem < len(m.snippets) {
 					m.snippets = append(m.snippets[:m.selectedItem], m.snippets[m.selectedItem+1:]...)
 					saveSnippets(m.snippets)
@@ -172,11 +187,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedItem--
 			} else if msg.String() == "down" && m.selectedItem < len(m.snippets)-1 {
 				m.selectedItem++
-			} else if msg.String() == "q" || msg.String() == "esc" {
+			} else if msg.Type == tea.KeyEsc || msg.String() == "q" {
 				m.state = "menu"
 			}
 		case "view":
-			if msg.String() == "q" || msg.String() == "esc" {
+			if msg.Type == tea.KeyEsc || msg.String() == "q" {
 				m.state = "menu"
 			}
 		}
@@ -184,7 +199,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
-	m.input, cmd = m.input.Update(msg)
+	if m.state == "add" {
+		if m.currentField < 2 {
+			m.input, cmd = m.input.Update(msg)
+		} else {
+			m.textarea, cmd = m.textarea.Update(msg)
+		}
+	}
 	return m, cmd
 }
 
@@ -210,21 +231,22 @@ func (m model) View() string {
 		switch m.currentField {
 		case 0:
 			prompt = "Enter snippet name"
+			s.WriteString(itemStyle.Render(fmt.Sprintf("%s:\n%s\n", prompt, m.input.View())))
 		case 1:
 			prompt = "Enter snippet language"
+			s.WriteString(itemStyle.Render(fmt.Sprintf("%s:\n%s\n", prompt, m.input.View())))
 		case 2:
 			prompt = "Enter snippet code"
+			s.WriteString(itemStyle.Render(fmt.Sprintf("%s:\n%s\n", prompt, m.textarea.View())))
+			s.WriteString(quitTextStyle.Render("(Press Ctrl+S to save, Esc to cancel)"))
 		}
-		s.WriteString(itemStyle.Render(fmt.Sprintf("%s:\n%s\n", prompt, m.input.View())))
 		s.WriteString("\n")
-		s.WriteString(quitTextStyle.Render("(Press ESC to cancel)"))
 		return s.String()
 	case "delete":
 		var s strings.Builder
 		s.WriteString(titleStyle.Render("Delete Snippet"))
 		s.WriteString("\n\n")
 
-		// Find the maximum ID to determine the width needed
 		maxID := 0
 		for _, snip := range m.snippets {
 			if snip.ID > maxID {
@@ -238,7 +260,6 @@ func (m model) View() string {
 			if m.selectedItem == i {
 				style = selectedItemStyle
 			}
-			// Use a fixed-width format for the ID
 			formattedLine := fmt.Sprintf("%-*d: %s", idWidth, snip.ID, snip.Name)
 			s.WriteString(style.Render(formattedLine) + "\n")
 		}
@@ -248,6 +269,16 @@ func (m model) View() string {
 	default:
 		return "Unknown state"
 	}
+}
+
+func (m model) resetState() model {
+	m.state = "menu"
+	m.currentField = 0
+	m.newSnippet = snippet{}
+	m.input.SetValue("")
+	m.textarea.SetValue("")
+	m.input.Placeholder = "Name"
+	return m
 }
 
 func main() {
